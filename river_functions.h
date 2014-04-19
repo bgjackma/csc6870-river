@@ -28,8 +28,10 @@ double dot(const Vec3<double>& v1, const Vec3<double>& v2)
 bool rayIntersects(const Triangle<double>& tri, 
     const Vec3<double>& origin, const Vec3<double>& dir);
 
+typedef std::function<int (plb::plint, plb::plint, plb::plint)> FlagFunc;
+
 //returns function to determine if a given point is within a mesh
-std::function<int (plb::plint, plb::plint, plb::plint)> wallFlagsFunction(
+FlagFunc wallFlagsFunction(
     const plb::TriangleSet<double>& mesh, Vec3<plb::plint> latticeSize,
     plb::Cuboid<double> meshBounds);
 
@@ -75,7 +77,7 @@ inline bool rayIntersects(const Triangle<double>& tri,
 
   Vec3<double> qVec = plb::crossProduct(tVec, edge1);
   double v = dot(dir, qVec) * inv_det;
-  if(v < 0 || v > 1) {
+  if(v < 0 || (u + v) > 1) {
     return false;
   }
 
@@ -96,8 +98,11 @@ inline std::function<int (plb::plint, plb::plint, plb::plint)> wallFlagsFunction
   tree::QuadTree<double, Triangle<double>> tree(
       meshBounds.lowerLeftCorner[0], meshBounds.upperRightCorner[0],
       meshBounds.lowerLeftCorner[1], meshBounds.upperRightCorner[1]);
-  Vec3<double> meshSize = meshBounds.upperRightCorner - 
-    meshBounds.lowerLeftCorner;
+  Vec3<double> meshScale = (meshBounds.upperRightCorner - 
+    meshBounds.lowerLeftCorner);
+  for(int i = 0; i < 3; ++i) {
+    meshScale[i] /= latticeSize[i];
+  }
   for(auto& tri : mesh.getTriangles()){
     tree.insert(tri);
   }
@@ -108,15 +113,29 @@ inline std::function<int (plb::plint, plb::plint, plb::plint)> wallFlagsFunction
     const Vec3<double> direction = { 0.0, 0.0, 1.0 };
     Vec3<double> origin = {static_cast<double>(pX),
       static_cast<double>(pY), static_cast<double>(pZ)};
-    origin *= meshSize;
+    origin *= meshScale;
     origin += meshBounds.lowerLeftCorner;
     auto first = tree.beginAt(origin[0], origin[1]);
     auto last = tree.end();
     int hits = std::count_if(first, last, [&](const Triangle<double>& t){
         return rayIntersects(t, origin, direction);
         });
-    return (hits & 1) == 0 ? twoPhaseFlag::empty : twoPhaseFlag::wall;
+    return ((hits & 1) == 0) ? twoPhaseFlag::empty : twoPhaseFlag::wall;
   };
 }
+
+struct InitialFlags
+{
+  InitialFlags(FlagFunc wall, FlagFunc fluid) : wall(wall), fluid(fluid) {}
+  int operator()(plb::plint x, plb::plint y, plb::plint z)
+  {
+    if(wall(x, y, z) == plb::twoPhaseFlag::wall) {
+      return plb::twoPhaseFlag::wall;
+    }
+    return fluid(x, y, z);
+  }
+
+  FlagFunc wall, fluid;
+};
 
 #endif

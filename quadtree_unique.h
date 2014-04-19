@@ -11,6 +11,7 @@
 #include <vector>
 #include <memory>
 #include <iostream>
+#include <cstdio>
 
 namespace tree{
 
@@ -37,7 +38,7 @@ template <typename T, typename S>
   class QuadTree
   {
     public:
-      explicit QuadTree(Rect<T> a) : area(a) {}
+      explicit QuadTree(const Rect<T>& a);
       QuadTree(T xMin, T xMax, T yMin, T yMax);
 
       //Add shape to quadtree
@@ -74,7 +75,10 @@ template <typename T, typename S>
       struct Node;
 
       Rect<T> area;
+      T centerX, centerY;
       std::vector<S> elements;
+      //  indices are:    01 | 11
+      //  (binary)        00 | 10
       Node children[4];
 
       //maximum number of objects to contain before split
@@ -127,7 +131,13 @@ template<typename T, typename S>
 
 template <typename T, typename S>
   QuadTree<T, S>::QuadTree(T xMin, T xMax, T yMin, T yMax)
-  : area(xMin, xMax, yMin, yMax) {}
+  : area(xMin, xMax, yMin, yMax), centerX((xMin + xMax) / 2),
+  centerY((yMin + yMax) / 2) {}
+
+template <typename T, typename S>
+  QuadTree<T, S>::QuadTree(const Rect<T>& area)
+  : area(area), centerX((area.xMin + area.xMax) / 2),
+  centerY((area.yMin + area.yMax) / 2) {}
 
 template <typename T, typename S>
   void QuadTree<T, S>::clear()
@@ -165,7 +175,7 @@ template <typename T, typename S>
 template <typename T, typename S>
   bool QuadTree<T,S>::coversPoint(T x, T y) const
   {
-    return (x > area.xMin && x < area.xMax && y > area.yMin && y < area.yMax);
+    return (x >= area.xMin && x < area.xMax && y >= area.yMin && y < area.yMax);
   }
 
 
@@ -177,17 +187,15 @@ template <typename T, typename S>
   void QuadTree<T, S>::split()
   {
     using std::swap;
-    T centerX = (area.xMax + area.xMin) / 2;
-    T centerY = (area.yMax + area.yMin) / 2;
     QuadTree<T,S> newTree(area);
     newTree.children[0].ptr.reset(
-        new QuadTree<T, S>(centerX, area.xMax, centerY, area.xMax));
-    newTree.children[1].ptr.reset(
-        new QuadTree<T, S>(area.xMin, centerX, centerY, area.xMax));
-    newTree.children[2].ptr.reset(
         new QuadTree<T, S>(area.xMin, centerX, area.yMin, centerY));
-    newTree.children[3].ptr.reset(
+    newTree.children[1].ptr.reset(
+        new QuadTree<T, S>(area.xMin, centerX, centerY, area.yMax));
+    newTree.children[2].ptr.reset(
         new QuadTree<T, S>(centerX, area.xMax, area.yMin, centerY));
+    newTree.children[3].ptr.reset(
+        new QuadTree<T, S>(centerX, area.xMax, centerY, area.yMax));
 
     for(auto& element : elements) {
       newTree.insert(element);
@@ -218,22 +226,22 @@ template <typename T, typename S>
 template <typename T, typename S>
   void QuadTree<T, S>::cpoint_iterator::nextNode()
   {
-    std::cout << node->elements.size() << " elements in region: " << 
-      '[' << node->area.xMin << ' ' << node->area.xMax << ' '
-      << node->area.yMin << ' ' << node->area.yMax << ']' << '\n';
     if(node->isLeaf()) {
       node = nullptr;
       it = typename std::vector<S>::const_iterator();
       return;
     }
-    for(auto& child : node->children) {
-      if(child.ptr->coversPoint(x, y)) {
-        node = child.ptr.get();
-        it = child.ptr->elements.begin();
-        end = child.ptr->elements.end();
-        return;
-      }
+    int quadrant = 0;
+    if (y > node->centerY){
+      quadrant += 1;
     }
+    if (x > node->centerX){
+      quadrant += 2;
+    }
+    node = node->children[quadrant].ptr.get();
+    it = node->elements.begin();
+    end = node->elements.end();
+    return;
   }
 template <typename T, typename S>
   bool QuadTree<T, S>::cpoint_iterator::operator!=(const cpoint_iterator& rhs)

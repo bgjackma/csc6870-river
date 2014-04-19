@@ -5,7 +5,7 @@
 # Leading directory of the Palabos source code
 palabosRoot   = ..
 # Name of source files in current directory to compile and link with Palabos
-projectFiles = river_test.cpp
+projectFiles = meshtest.cpp
 
 # Set optimization flags on/off
 optimize     = true
@@ -39,7 +39,6 @@ compileFlags = --std=c++0x -Wno-deprecated-declarations
 linkFlags    =
 # Compiler flags to use when optimization mode is on
 optimFlags   = -O3
-# Compiler flags to use when debug mode is on
 debugFlags   = -g
 # Compiler flags to use when profile mode is on
 profileFlags = -pg

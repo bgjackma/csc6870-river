@@ -81,21 +81,22 @@ void setupParameters() {
 void readMesh(const std::string& meshFile, 
     FreeSurfaceFields3D<T,DESCRIPTOR>& fields)
 {
-  pcout << "Reading mesh\n";
+  pcout << "Voxelizing mesh...\n";
   TriangleSet<double> mesh(meshFile);
   Cuboid<T> mBounds = mesh.getBoundingCuboid();
   T meshHeight = mBounds.upperRightCorner[2] - mBounds.lowerLeftCorner[2];
-  mBounds.upperRightCorner[2] += 2 * meshHeight;
+  mBounds.upperRightCorner[2] += meshHeight;
+
   auto wallFunc = wallFlagsFunction(mesh, Vec3<plint>(nx, ny, nz), mBounds);
   auto fluidFunc = [](plint x, plint y, plint z){
       return (z > (nz * 0.75)) ? twoPhaseFlag::fluid : twoPhaseFlag::empty; };
+
   setToConstant(fields.flag, fields.flag.getBoundingBox(), (int)twoPhaseFlag::wall);
-  pcout << "Setting to function\n";
   setToFunction(fields.flag, fields.flag.getBoundingBox().enlarge(-1),
       InitialFlags(std::move(wallFunc), std::move(fluidFunc)));
-  pcout << "Done setting mesh.\n";
-  
+  pcout << "Voxelization complete!\n";
 }
+
 
 void writeResults(MultiBlockLattice3D<T,DESCRIPTOR>& lattice, MultiScalarField3D<T>& volumeFraction, plint iT)
 {
