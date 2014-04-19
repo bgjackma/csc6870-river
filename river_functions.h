@@ -6,11 +6,10 @@
 #ifndef RIVER_FUNCTIONS_H
 #define RIVER_FUNCTIONS_H
 
-#include <functional>
 #include "palabos3D.h"
 #include "palabos3D.hh"
-#include "quadtree.h"
-#include <algorithm>
+
+using namespace plb;
 
 template <typename T>
 using Vec3 = plb::Array<T, 3>;
@@ -35,95 +34,8 @@ FlagFunc wallFlagsFunction(
     const plb::TriangleSet<double>& mesh, Vec3<plb::plint> latticeSize,
     plb::Cuboid<double> meshBounds);
 
-namespace tree{
-//function overload to allow triangles to be placed in the quadtree
-template<typename T>
-bool within(const plb::Array<plb::Array<T, 3>, 3>& shape,
-    const tree::Rect<T>& r)
-{
-  for(int i = 0; i < 3; ++i) {
-    if(shape[i][0] < r.xMin || shape[i][0] > r.xMax 
-        || shape[i][1] < r.yMin || shape[i][1] > r.yMax) {
-      return false;
-    }
-  }
-  return true;
-}
-}
 
-//Moeller-Trumbore intersection algorithm
-//for rays and triangles
-inline bool rayIntersects(const Triangle<double>& tri,
-    const Vec3<double>& origin, const Vec3<double>& dir)
-{
-  static const double EPSILON = 0.00001;
-  Vec3<double> edge1 = tri[1] - tri[0];
-  Vec3<double> edge2 = tri[2] - tri[0];
-
-  //calculate determinant
-  Vec3<double> pVec = plb::crossProduct(dir, edge2);
-  double det = dot(edge1, pVec);
-  if(det > -EPSILON && det < EPSILON) {
-    return false;
-  }
-  double inv_det = 1.0 / det;
-
-  Vec3<double> tVec = origin - tri[0];
-  double u = dot(tVec, pVec) * inv_det;
-  //the intersection lies outside the triangle
-  if(u < 0 || u > 1) {
-    return false;
-  }
-
-  Vec3<double> qVec = plb::crossProduct(tVec, edge1);
-  double v = dot(dir, qVec) * inv_det;
-  if(v < 0 || (u + v) > 1) {
-    return false;
-  }
-
-  double t = dot(edge2, qVec) * inv_det;
-
-  if(t > EPSILON) {
-    return true;
-  }
-
-  return false;
-}
-
-inline std::function<int (plb::plint, plb::plint, plb::plint)> wallFlagsFunction(
-    const plb::TriangleSet<double>& mesh, Vec3<plb::plint> latticeSize,
-    plb::Cuboid<double> meshBounds)
-{
-  using namespace plb;
-  tree::QuadTree<double, Triangle<double>> tree(
-      meshBounds.lowerLeftCorner[0], meshBounds.upperRightCorner[0],
-      meshBounds.lowerLeftCorner[1], meshBounds.upperRightCorner[1]);
-  Vec3<double> meshScale = (meshBounds.upperRightCorner - 
-    meshBounds.lowerLeftCorner);
-  for(int i = 0; i < 3; ++i) {
-    meshScale[i] /= latticeSize[i];
-  }
-  for(auto& tri : mesh.getTriangles()){
-    tree.insert(tri);
-  }
-
-  //copying the tree, but whatever we only have to do it once
-  //and capturing by move is convoluted
-  return [=](plint pX, plint pY, plint pZ){
-    const Vec3<double> direction = { 0.0, 0.0, 1.0 };
-    Vec3<double> origin = {static_cast<double>(pX),
-      static_cast<double>(pY), static_cast<double>(pZ)};
-    origin *= meshScale;
-    origin += meshBounds.lowerLeftCorner;
-    auto first = tree.beginAt(origin[0], origin[1]);
-    auto last = tree.end();
-    int hits = std::count_if(first, last, [&](const Triangle<double>& t){
-        return rayIntersects(t, origin, direction);
-        });
-    return ((hits & 1) == 0) ? twoPhaseFlag::empty : twoPhaseFlag::wall;
-  };
-}
-
+//functor to initialize both walls and water
 struct InitialFlags
 {
   InitialFlags(FlagFunc wall, FlagFunc fluid) : wall(wall), fluid(fluid) {}
@@ -138,4 +50,47 @@ struct InitialFlags
   FlagFunc wall, fluid;
 };
 
+//Fluid creation data processor
+template< typename T,template<typename U> class Descriptor>
+class CreateLiquid3D : public BoxProcessingFunctional3D {
+public:
+    CreateLiquid3D(Dynamics<T,Descriptor>* dynamicsTemplate_, T inflowSpeed)
+        : dynamicsTemplate(dynamicsTemplate_), inflowSpeed(inflowSpeed)
+    { }
+    CreateLiquid3D(CreateLiquid3D<T,Descriptor> const& rhs)
+        : dynamicsTemplate(rhs.dynamicsTemplate->clone()),
+          inflowSpeed(rhs.inflowSpeed)
+    { }
+    CreateLiquid3D<T,Descriptor>* operator=(CreateLiquid3D<T,Descriptor> const& rhs)
+    { 
+        CreateLiquid3D<T,Descriptor>(rhs).swap(*this);
+        return *this;
+    }
+    void swap(CreateLiquid3D<T,Descriptor>& rhs) {
+        std::swap(dynamicsTemplate, rhs.dynamicsTemplate);
+        std::swap(inflowSpeed, rhs.inflowSpeed);
+    }
+    virtual ~CreateLiquid3D() {
+        delete dynamicsTemplate;
+    }
+    virtual void processGenericBlocks(Box3D domain, std::vector<AtomicBlock3D*> atomicBlocks);
+    virtual CreateLiquid3D<T,Descriptor>* clone() const;
+    virtual void getTypeOfModification(std::vector<modif::ModifT>& modified) const {
+        modified[0] = modif::dataStructure;    // Fluid
+        modified[1] = modif::staticVariables;  // rhoBar.
+        modified[2] = modif::staticVariables;  // j.
+        modified[3] = modif::staticVariables;  // Mass
+        modified[4] = modif::staticVariables;  // Mass-fraction
+        modified[5] = modif::staticVariables;  // Flag-status
+        modified[6] = modif::nothing;          // Normal
+        modified[7] = modif::nothing;          // Interface lists
+        modified[8] = modif::nothing;          // Curvature.
+        modified[9] = modif::nothing;          // Outside density.
+    }
+private:
+    Dynamics<T,Descriptor>* dynamicsTemplate;
+    T inflowSpeed;
+};
+
+#include "river_functions.hpp"
 #endif
