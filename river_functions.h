@@ -92,5 +92,27 @@ private:
     T inflowSpeed;
 };
 
+template< typename T,template<typename U> class Descriptor>
+class DestroyLiquid3D : public BoxProcessingFunctional3D {
+public:
+    DestroyLiquid3D(T removal) : suckPower(removal) {}
+    virtual void processGenericBlocks(Box3D domain, std::vector<AtomicBlock3D*> atomicBlocks);
+    virtual DestroyLiquid3D<T,Descriptor>* clone() const;
+    virtual void getTypeOfModification(std::vector<modif::ModifT>& modified) const {
+        modified[0] = modif::dataStructure;    // Fluid
+        modified[1] = modif::staticVariables;  // rhoBar.
+        modified[2] = modif::staticVariables;  // j.
+        modified[3] = modif::staticVariables;  // Mass
+        modified[4] = modif::staticVariables;  // Mass-fraction
+        modified[5] = modif::staticVariables;  // Flag-status
+        modified[6] = modif::nothing;          // Normal
+        modified[7] = modif::nothing;          // Interface lists
+        modified[8] = modif::nothing;          // Curvature.
+        modified[9] = modif::nothing;          // Outside density.
+    }
+private:
+    T suckPower;
+};
+
 #include "river_functions.hpp"
 #endif

@@ -41,8 +41,8 @@ typedef double T;
 const T cSmago = 0.14;
 
 // Physical dimensions of the system (in meters).
-const T lx = 1.0;
-const T ly = 1.0;
+const T lx = 2.0;
+const T ly = 2.0;
 const T lz = 1.0;
 
 const T rhoEmpty = T(1);
@@ -76,16 +76,22 @@ void setupParameters() {
     surfaceTensionLB = rhoEmpty * gLB * N * N / Bo;
 }
 
-void addSpout(plint x, plint y, plint z,
+//create zone that creates water, only works as long as it is touching fluid
+void addSpout(Box3D inlet, T pressure,
     FreeSurfaceFields3D<T,DESCRIPTOR>& fields)
 {
-  Box3D box(x, x, y, y, z, z);
-  Box3D box2 = box.enlarge(2);
-  setToConstant(fields.flag, box2, (int)twoPhaseFlag::wall);
-  setToConstant(fields.flag, box2.shift(0,0,1), (int)twoPhaseFlag::fluid);
+  setToConstant(fields.flag, inlet, (int)twoPhaseFlag::fluid);
   integrateProcessingFunctional(
-      new CreateLiquid3D<T, DESCRIPTOR>(fields.dynamics->clone(), 5.03),
-      box.enlarge(1), fields.twoPhaseArgs, 4);
+      new CreateLiquid3D<T, DESCRIPTOR>(fields.dynamics->clone(), pressure),
+      inlet.enlarge(-2), fields.twoPhaseArgs, 4);
+}
+
+//create zone that destroys incident fluid
+void addDrain(Box3D drain, FreeSurfaceFields3D<T, DESCRIPTOR>& fields)
+{
+  integrateProcessingFunctional(
+      new CreateLiquid3D<T, DESCRIPTOR>(fields.dynamics->clone(), 0.9),
+        drain, fields.twoPhaseArgs, 4);
 }
 
 void readMesh(const std::string& meshFile, 
@@ -95,7 +101,7 @@ void readMesh(const std::string& meshFile,
   TriangleSet<double> mesh(meshFile);
   Cuboid<T> mBounds = mesh.getBoundingCuboid();
   T meshHeight = mBounds.upperRightCorner[2] - mBounds.lowerLeftCorner[2];
-  mBounds.upperRightCorner[2] += meshHeight;
+  mBounds.upperRightCorner[2] += meshHeight * 0.2;
 
   auto wallFunc = wallFlagsFunction(mesh, Vec3<plint>(nx, ny, nz), mBounds);
   auto fluidFunc = [](plint x, plint y, plint z){
@@ -158,6 +164,7 @@ int main(int argc, char **argv)
     plbInit(&argc, &argv);
     global::directories().setInputDir("./");
     std::string stlFile;
+    T inPressure;
         
     if (global::argc() != 9) {
         pcout << "Error missing some input parameter\n";
@@ -167,26 +174,28 @@ int main(int argc, char **argv)
         global::argv(1).read(outDir);
         global::directories().setOutputDir(outDir+"/");
         global::argv(2).read(stlFile);
-        global::argv(3).read(nuPhys);
-        global::argv(4).read(Bo);
-        global::argv(5).read(contactAngle);
-        global::argv(6).read(N);
-        global::argv(7).read(delta_t);
-        global::argv(8).read(maxIter);
+        global::argv(3).read(inPressure);
+        global::argv(4).read(nuPhys);
+        global::argv(5).read(Bo);
+        global::argv(6).read(contactAngle);
+        global::argv(7).read(N);
+        global::argv(8).read(delta_t);
+        global::argv(9).read(maxIter);
     }
     catch(PlbIOException& except) {
         pcout << except.what() << std::endl;
         pcout << "The parameters for this program are :\n";
         pcout << "1. Output directory name.\n";
         pcout << "2. Mesh input file.\n";
-        pcout << "3. kinematic viscosity in physical Units (m^2/s) .\n";
-        pcout << "4. Bond number (Bo = rho * g * L^2 / gamma).\n";
-        pcout << "5. Contact angle (in degrees).\n";
-        pcout << "6. number of lattice nodes for lz .\n";
-        pcout << "7. delta_t .\n"; 
-        pcout << "8. maxIter .\n";
-        pcout << "Reasonable parameters on a desktop computer are: " << (std::string)global::argv(0) << " tmp 1.e-5 100 80.0 40 1.e-3 80000\n";
-        pcout << "Reasonable parameters on a parallel machine are: " << (std::string)global::argv(0) << " tmp 1.e-6 100 80.0 100 1.e-4 80000\n";
+        pcout << "3. Input pressure factor.\n";
+        pcout << "4. kinematic viscosity in physical Units (m^2/s) .\n";
+        pcout << "5. Bond number (Bo = rho * g * L^2 / gamma).\n";
+        pcout << "6. Contact angle (in degrees).\n";
+        pcout << "7. number of lattice nodes for lz .\n";
+        pcout << "8. delta_t .\n"; 
+        pcout << "9. maxIter .\n";
+        pcout << "Reasonable parameters on a desktop computer are: " << (std::string)global::argv(0) << " tmp blah.stl 1.02 1.e-5 100 80.0 40 1.e-3 80000\n";
+        pcout << "Reasonable parameters on a parallel machine are: " << (std::string)global::argv(0) << " tmp blah.tel 1.05 1.e-6 100 80.0 100 1.e-4 80000\n";
         exit (EXIT_FAILURE);
     }
     
@@ -217,14 +226,11 @@ int main(int argc, char **argv)
 
     //read mesh file to set flags
     readMesh(stlFile, fields);
-    addSpout(nx / 2, ny / 2, nz / 2, fields);
+    Box3D inlet(nx * 0.85, nx - 1, ny * 0.85, ny - 1, 1, nz * 0.2);
+    addSpout(inlet, inPressure, fields);
 
-    Box3D faucet = {2, 3, (ny / 2) - 4, (ny / 2) + 4, 1, nz - 2};
-    Vec3<T> velocity = {0.8, 0 ,0};
-    Box3D drain = {0, nx, 0, ny, 0, nz / 5};
-
-    //integrateProcessingFunctional(
-      //  new RemoveMass3D<T, DESCRIPTOR>(), drain, fields.twoPhaseArgs, 0);
+    Box3D drain(1, 2, 1, 2, 1, nz * 0.2);
+    addDrain(drain, fields);
     
     fields.defaultInitialize();
 

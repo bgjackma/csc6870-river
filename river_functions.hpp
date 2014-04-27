@@ -114,7 +114,7 @@ void CreateLiquid3D<T,Descriptor>::processGenericBlocks(Box3D domain, std::vecto
         {
           continue;
         }
-        T iniRho = T(1.02);
+        T iniRho = T(inflowSpeed);
         param.attributeDynamics (
             iX,iY,iZ, dynamicsTemplate->clone() );
         //iniCellAtEquilibrium(param.cell(iX,iY,iZ), iniRho, injectionVelocity);
@@ -124,16 +124,6 @@ void CreateLiquid3D<T,Descriptor>::processGenericBlocks(Box3D domain, std::vecto
         param.volumeFraction(iX,iY,iZ) = (T)1;
         param.flag(iX,iY,iZ) = fluid;
 
-        /*
-        Cell<T,Descriptor>& cell = param.cell(iX,iY,iZ);
-        for(plint iPop=0; iPop < D::q; ++iPop) {
-          plint nextX = iX + D::c[iPop][0];
-          plint nextY = iY + D::c[iPop][1];
-          plint nextZ = iZ + D::c[iPop][2];
-          plint opp = indexTemplates::opposite<D>(iPop);
-          param.cell(nextX, nextY, nextZ)[iPop] += T(0.5);
-        }
-        */
       }
     }
   }
@@ -144,5 +134,26 @@ CreateLiquid3D<T,Descriptor>* CreateLiquid3D<T,Descriptor>::clone() const {
   return new CreateLiquid3D<T,Descriptor>(*this);
 }
 
+template<typename T, template<typename U> class Descriptor>
+void DestroyLiquid3D<T,Descriptor>::processGenericBlocks(Box3D domain,std::vector<AtomicBlock3D*> atomicBlocks)
+{
+    using namespace twoPhaseFlag;
+    FreeSurfaceProcessorParam3D<T,Descriptor> param(atomicBlocks);
+            
+    for (plint iX=domain.x0; iX<=domain.x1; ++iX) {
+        for (plint iY=domain.y0; iY<=domain.y1; ++iY) {
+            for (plint iZ=domain.z0; iZ<=domain.z1; ++iZ) {
+                //param.attributeDynamics(iX,iY,iZ, new NoDynamics<T,Descriptor>());
+                param.setDensity(iX,iY,iZ, suckPower);
+                param.mass(iX,iY,iZ) = suckPower;
+            }
+        }
+    }
+}
+
+template<typename T, template<typename U> class Descriptor>
+DestroyLiquid3D<T,Descriptor>* DestroyLiquid3D<T,Descriptor>::clone() const {
+    return new DestroyLiquid3D<T,Descriptor>(*this);
+}
 
 #endif
